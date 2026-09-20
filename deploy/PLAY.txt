@@ -1,0 +1,37 @@
+PARTY KNIGHT - PROTOTYPE (PROTOCOL 3)
+
+Keep PartyKnight.exe and PartyKnight.pck in the same folder.
+Connect to your dedicated server's address and UDP port (default 7000).
+Choose your name and peasant. You can edit your name again in the lobby.
+
+The host selects games and can shuffle their order. Everyone readies up;
+the host starts. Player numbers P1-P4 and their colors remain stable.
+Two to four players compete. One player can start unscored practice.
+The dedicated server is required even for practice; this client does not host.
+
+BALLISTA RUN
+Runners: WASD moves; left click shoves in your facing direction.
+Reach the gold finish line using cover. No jumping.
+Shooter: mouse aims; left click fires. Four shots, then a 3-second reload.
+Everyone shoots once. EACH HEAT LASTS UP TO 60 SECONDS, ending early when
+all runners have finished or been eliminated.
+
+LANCE
+WASD moves; left click shoves. Find an OPEN stall before the sharks charge.
+Four-second warnings show closing stalls. Fewer stalls remain each wave.
+Last survivor wins. Three rounds, at most 45 seconds each.
+
+COIN COLLECTION
+Tap E to collect. Stop tapping to retract in 0.25 seconds.
+The blade shakes for 1-4 seconds before falling. If it catches your hand,
+you stop collecting for the round, but KEEP your coins.
+Three rounds, at most 35 seconds or six blade cycles each.
+
+Each completed game awards 3/2/1/0 match points after combining its rounds.
+Ties share points and skip occupied ranks. Highest match total wins.
+You respawn next round or heat. TAB changes runner spectator targets.
+ESC opens settings. Settings control fullscreen, volume, and blood.
+Solo Ballista is an unopposed 60-second course; solo play awards no points.
+
+Character assets: supplied Free Medieval 3D People Low Poly Pack.
+See Character-Asset-License.txt for the supplied license reference.

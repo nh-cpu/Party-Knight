@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="GameRules" format=3 uid="uid://c0m44opkhp37q"]
+
+[ext_resource type="Script" uid="uid://b35jyobsuf8xh" path="res://scripts/games/game_rules.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/games/lance.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/lance_view.tscn" id="3"]
+
+[resource]
+script = ExtResource("1")
+title = "LANCE"
+game_id = &"lance"
+view_scene = ExtResource("3")
+control_profile = &"moving"
+performance_label = "survival points"
+instructions = "WASD moves. Left click shoves the rival you face. Find an OPEN stall before the sharks sweep the street. Fewer stalls remain each wave. No jumping."
+scene = ExtResource("2")
+duration = 45.0
+points = null

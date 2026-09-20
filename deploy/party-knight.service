@@ -1,0 +1,27 @@
+[Unit]
+Description=Party Knight authoritative dedicated server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=party-knight
+Group=party-knight
+WorkingDirectory=/opt/party-knight/current
+EnvironmentFile=/etc/party-knight.env
+Environment=HOME=/var/lib/party-knight
+ExecStart=/opt/party-knight/current/party-knight.x86_64 --headless -- --server --port ${GAME_PORT}
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/party-knight
+StateDirectory=party-knight
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

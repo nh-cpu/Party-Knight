@@ -1,0 +1,305 @@
+@tool
+class_name MCPProjectFSHandlers
+extends RefCounted
+const Coerce := preload("../type_coerce.gd")
+## Domain handler: project fs.
+##
+## Registered by the router on _init().  Each handler receives params dict and
+## returns a response body (without id) via the router's _ok / _fail builders.
+
+var _router: MCPCommandRouter
+
+
+
+
+
+func _file_contains(path: String, needle: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return false
+	if file.get_length() > 2_000_000:  # skip large/binary files
+		file.close()
+		return false
+	var text := file.get_as_text()
+	file.close()
+	return text.contains(needle)
+
+
+func _search(dir_path: String, name_glob: String, content: String, max_results: int, out: Array) -> bool:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return false
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if not name.begins_with("."):
+			var full := dir_path.path_join(name)
+			if dir.current_is_dir():
+				if _search(full, name_glob, content, max_results, out):
+					dir.list_dir_end()
+					return true
+			elif (name_glob.is_empty() or name.match(name_glob)) \
+					and (content.is_empty() or _file_contains(full, content)):
+				out.append(full)
+				if out.size() >= max_results:
+					dir.list_dir_end()
+					return true
+		name = dir.get_next()
+	dir.list_dir_end()
+	return false
+
+
+func _fs_node(dir_path: String, max_depth: int) -> Dictionary:
+	var node: Dictionary = {
+		"name": ("res://" if dir_path == "res://" else dir_path.trim_suffix("/").get_file()),
+		"path": dir_path,
+		"type": "directory",
+		"children": [],
+	}
+	if max_depth == 0:
+		return node
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return node
+	var child_depth: int = (max_depth - 1) if max_depth > 0 else -1
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if not name.begins_with("."):
+			var full := dir_path.path_join(name)
+			if dir.current_is_dir():
+				node["children"].append(_fs_node(full, child_depth))
+			else:
+				node["children"].append({"name": name, "path": full, "type": "file"})
+		name = dir.get_next()
+	dir.list_dir_end()
+	return node
+
+
+## Recursively collect files matching name_glob and/or content; returns true if the
+## result was truncated at max_results.
+func _init(router: MCPCommandRouter) -> void:
+	_router = router
+
+
+func register(handlers: Dictionary) -> void:
+	handlers["cmd_get_filesystem_tree"] = _cmd_get_filesystem_tree
+	handlers["cmd_get_setting"] = _cmd_get_setting
+	handlers["cmd_path_to_uid"] = _cmd_path_to_uid
+	handlers["cmd_search_files"] = _cmd_search_files
+	handlers["cmd_set_setting"] = _cmd_set_setting
+	handlers["cmd_uid_to_path"] = _cmd_uid_to_path
+	handlers["cmd_delete_resource_file"] = _cmd_delete_resource_file
+
+
+# -- handlers ----------------------------------------------------------------
+
+func _cmd_get_filesystem_tree(params: Dictionary) -> Dictionary:
+	var directory := str(params.get("directory", "res://"))
+	if not directory.begins_with("res://"):
+		return _router._fail("VALIDATION_ERROR", "directory must be inside the project (res://…).")
+	if not DirAccess.dir_exists_absolute(directory):
+		return _router._fail("RESOURCE_NOT_FOUND", "No directory '%s'." % directory)
+	var max_depth := int(params.get("max_depth", -1))
+	return _router._ok({"tree": _fs_node(directory, max_depth)})
+
+
+
+func _cmd_search_files(params: Dictionary) -> Dictionary:
+	var directory := str(params.get("directory", "res://"))
+	if not directory.begins_with("res://"):
+		return _router._fail("VALIDATION_ERROR", "directory must be inside the project (res://…).")
+	if not DirAccess.dir_exists_absolute(directory):
+		return _router._fail("RESOURCE_NOT_FOUND", "No directory '%s'." % directory)
+	var name_glob := str(params.get("name_glob", ""))
+	var content := str(params.get("content", ""))
+	var max_results := int(params.get("max_results", 200))
+	var matches: Array = []
+	var truncated := _search(directory, name_glob, content, max_results, matches)
+	return _router._ok({"matches": matches, "truncated": truncated})
+
+
+
+func _cmd_get_setting(params: Dictionary) -> Dictionary:
+	var setting := str(params.get("name", ""))
+	if not ProjectSettings.has_setting(setting):
+		return _router._ok({"name": setting, "value": null, "exists": false})
+	return _router._ok({
+		"name": setting,
+		"value": Coerce.to_json(ProjectSettings.get_setting(setting)),
+		"exists": true,
+	})
+
+
+
+func _cmd_set_setting(params: Dictionary) -> Dictionary:
+	var setting := str(params.get("name", ""))
+	if setting.is_empty():
+		return _router._fail("VALIDATION_ERROR", "'name' must be a non-empty string.")
+	var refusal := _unknown_setting_refusal(setting)
+	if not refusal.is_empty():
+		return _router._fail("VALIDATION_ERROR", refusal)
+	var raw: Variant = params.get("value")
+	var value: Variant = raw
+	if ProjectSettings.has_setting(setting):
+		# Coerce to the setting's existing type so e.g. a vector dict becomes a Vector2.
+		value = Coerce.from_json(raw, typeof(ProjectSettings.get_setting(setting)))
+	ProjectSettings.set_setting(setting, value)
+	ProjectSettings.save()
+	return _router._ok({
+		"name": setting,
+		"value": Coerce.to_json(ProjectSettings.get_setting(setting)),
+		"set": true,
+	})
+
+
+## Refusal text for an obvious typo'd ProjectSettings key, or "" when the write
+## is allowed (issue #462).
+##
+## Godot silently persists any key you set — a typo like
+## `application/config/main_scene` (the real key is `application/run/main_scene`)
+## is written to project.godot, never read, and never errors. The engine's own
+## known-key set is the singleton's property list (#425-adjacent: same list the
+## Inspector shows). A hard refusal must only fire when we can be sure the key
+## is dead, so the gate is:
+##   - key is already set / in the known list → allowed (round-trip keys like
+##     `config_version` are not all in the list but are real),
+##   - key under a user-owned namespace (autoload, custom, or a section the
+##     engine does not declare, e.g. a game's own `my_game/…`) → allowed —
+##     Godot documents custom sections as a supported pattern,
+##   - otherwise (typo inside a known engine section) → refuse with a hint
+##     suggesting the closest real key.
+func _unknown_setting_refusal(setting: String) -> String:
+	if ProjectSettings.has_setting(setting):
+		return ""
+	var known: Array = []
+	for p in ProjectSettings.get_property_list():
+		known.append(str(p.get("name", "")))
+	if known.has(setting):
+		return ""
+	var slash := setting.find("/")
+	if slash <= 0:
+		# No section (or root special keys like config_version): engine accepts these.
+		return ""
+	var section := setting.substr(0, slash)
+	if not _KNOWN_SECTIONS.has(section):
+		return ""
+	var suggestion := _closest_known_key(setting, known)
+	var hint := "Unknown ProjectSettings key '%s'. Godot would write it to project.godot but never read it." % setting
+	if not suggestion.is_empty():
+		hint += " Did you mean '%s'?" % suggestion
+	return hint
+
+
+const _KNOWN_SECTIONS := {
+	"application": true,
+	"accessibility": true,
+	"audio": true,
+	"collada": true,
+	"compression": true,
+	"debug": true,
+	"display": true,
+	"editor": true,
+	"editor_plugins": true,
+	"filesystem": true,
+	"gui": true,
+	"input": true,
+	"input_devices": true,
+	"internationalization": true,
+	"layer_names": true,
+	"memory": true,
+	"navigation": true,
+	"network": true,
+	"physics": true,
+	"rendering": true,
+	"threading": true,
+	"xr": true,
+}
+
+
+## Nearest known key by shared prefix depth — surfaces `application/run/main_scene`
+## for the `application/config/main_scene` typo without pulling in a full
+## edit-distance implementation.
+func _closest_known_key(setting: String, known: Array) -> String:
+	var parts := setting.split("/")
+	var best := ""
+	var best_score := 0
+	for candidate in known:
+		var c_parts: PackedStringArray = str(candidate).split("/")
+		var score := 0
+		for i in range(mini(parts.size(), c_parts.size())):
+			if parts[i] != c_parts[i]:
+				break
+			score += 1
+		if score > best_score:
+			best_score = score
+			best = str(candidate)
+	return best
+
+
+
+func _cmd_path_to_uid(params: Dictionary) -> Dictionary:
+	var path := str(params.get("path", ""))
+	var id := ResourceLoader.get_resource_uid(path)
+	if id == -1:
+		return _router._fail("RESOURCE_NOT_FOUND", "No UID for '%s'." % path)
+	return _router._ok({"path": path, "uid": ResourceUID.id_to_text(id)})
+
+
+
+func _cmd_uid_to_path(params: Dictionary) -> Dictionary:
+	var uid := str(params.get("uid", ""))
+	var id := ResourceUID.text_to_id(uid)
+	if id == -1 or not ResourceUID.has_id(id):
+		return _router._fail("RESOURCE_NOT_FOUND", "Unknown UID '%s'." % uid)
+	return _router._ok({"uid": uid, "path": ResourceUID.get_id_path(id)})
+
+
+## Delete a res:// file and its .uid sidecar — the inverse of the file-creating
+## handlers (issue #217). res:// containment is enforced server-side; the check here
+## is defense-in-depth. Undoable: the file (and uid) bytes are captured first and
+## restored on undo, so binary resources round-trip exactly.
+## A deleted *scene* that is open in the editor also gets its tab closed (issue
+## #422): the stale in-memory copy would otherwise linger and a later
+## create_scene at the same path resurrects mangled duplicate nodes.
+func _cmd_delete_resource_file(params: Dictionary) -> Dictionary:
+	var path := str(params.get("path", ""))
+	if not path.begins_with("res://"):
+		return _router._fail("VALIDATION_ERROR", "path must be a res:// file.")
+	if not FileAccess.file_exists(path):
+		return _router._fail("RESOURCE_NOT_FOUND", "No file at '%s'." % path)
+	var bytes := FileAccess.get_file_as_bytes(path)
+	var uid_path := path + ".uid"
+	var had_uid := FileAccess.file_exists(uid_path)
+	var uid_bytes := FileAccess.get_file_as_bytes(uid_path) if had_uid else PackedByteArray()
+	# Close the scene tab BEFORE the undoable delete so the editor forgets the
+	# in-memory scene; open tabs of .tscn/.scn files are the resurrection trap.
+	# close_scene() only closes the ACTIVE tab (Godot 4.7 EditorInterface has no
+	# close-by-path), so when the target is open but not active we must activate
+	# it first (open_scene_from_path re-activates an already-open tab) and verify
+	# the switch landed before closing — otherwise we'd close the wrong tab and
+	# discard unsaved work in an unrelated scene.
+	var tab_closed := false
+	if path.ends_with(".tscn") or path.ends_with(".scn"):
+		for open_path in EditorInterface.get_open_scenes():
+			if open_path != path:
+				continue
+			var active_root := EditorInterface.get_edited_scene_root()
+			if active_root == null or active_root.scene_file_path != path:
+				EditorInterface.open_scene_from_path(path)
+				active_root = EditorInterface.get_edited_scene_root()
+				if active_root == null or active_root.scene_file_path != path:
+					break  # activation failed — refuse to guess which tab is active
+			tab_closed = EditorInterface.close_scene() == OK
+			break
+	var ur := EditorInterface.get_editor_undo_redo()
+	ur.create_action("Delete file %s" % path)
+	ur.add_do_method(_router, "_remove_file_with_uid", path)
+	ur.add_undo_method(_router, "_write_file_bytes", path, bytes)
+	if had_uid:
+		ur.add_undo_method(_router, "_write_file_bytes", uid_path, uid_bytes)
+	ur.commit_action()
+	EditorInterface.get_resource_filesystem().update_file(path)
+	return _router._ok({"path": path, "deleted": true, "had_uid": had_uid, "tab_closed": tab_closed})
+
+

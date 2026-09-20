@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="GameRules" format=3 uid="uid://bh8mgrgt14bbo"]
+
+[ext_resource type="Script" uid="uid://b35jyobsuf8xh" path="res://scripts/games/game_rules.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/games/ballista.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/ballista_view.tscn" id="3"]
+
+[resource]
+script = ExtResource("1")
+title = "BALLISTA RUN"
+game_id = &"ballista"
+view_scene = ExtResource("3")
+control_profile = &"roles"
+rotating_roles = true
+performance_label = "% success"
+performance_scale = 100.0
+instructions = "Runners: WASD moves, left click shoves. Reach the gold line using cover. Shooter: mouse aims, left click fires four bolts, then reload for 3 seconds. Everyone shoots once. Each heat lasts up to 60 seconds."
+scene = ExtResource("2")
+points = null

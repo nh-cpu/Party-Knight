@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="GameRules" format=3 uid="uid://b7164n06f3knu"]
+
+[ext_resource type="Script" uid="uid://b35jyobsuf8xh" path="res://scripts/games/game_rules.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/games/coins.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/coins_view.tscn" id="3"]
+
+[resource]
+script = ExtResource("1")
+title = "COIN COLLECTION"
+game_id = &"coins"
+view_scene = ExtResource("3")
+performance_label = "coins"
+instructions = "Tap E for coins. Stop tapping to retract your hand in 0.25 seconds. The blade shakes for 1–4 seconds before falling. You keep earned coins if your hand is lost."
+scene = ExtResource("2")
+duration = 35.0
+points = null
